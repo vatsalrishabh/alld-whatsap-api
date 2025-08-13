@@ -1,0 +1,32 @@
+{
+  "name": "vatsal-whatsapp-api",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "docx": "^9.5.1",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "fs": "^0.0.1-security",
+    "inquirer": "^12.9.0",
+    "mongoose": "^8.17.0",
+    "node-cron": "^4.2.1",
+    "openai": "^5.12.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "swagger-ui-express": "^5.0.1",
+    "whatsapp-web.js": "^1.31.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
