@@ -2,6 +2,7 @@ const express = require('express');
 const cron = require('node-cron');
 const connectDB = require('./config/db'); // Ensure this file exports a function to connect to MongoDB
 const { getCaseDetailsByCino } = require('./services/highCourtAlld');
+const { startWhatsapp } = require('./services/whatsappService');
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +12,9 @@ app.use(express.json());
 
 // Connect to MongoDB
 connectDB();
+
+// Start WhatsApp client for outbound notifications
+startWhatsapp().catch((e) => console.error('❌ WhatsApp init failed:', e.message));
 
 // Cron job - runs daily at 9AM
 // cron.schedule('0 9 * * *', async () => {

@@ -1,8 +1,17 @@
 const mongoose = require('mongoose');
 
-const hearingDateSchema = new mongoose.Schema({
-  cino: { type: String, required: true, unique: true },
-  nextHearingDate: { type: String }, // Store as string or Date depending on format
-});
+const caseDetailsSchema = new mongoose.Schema(
+  {
+    cino: { type: String, required: true, unique: true },
+    status: { type: String },
+    stage: { type: String },
+    bench: { type: String },
+    nextHearingDate: { type: String },
+    petitioner: { type: String },
+    respondent: { type: String },
+    lastSnapshot: { type: mongoose.Schema.Types.Mixed },
+  },
+  { timestamps: true }
+);
 
-module.exports = mongoose.model('HearingDate', hearingDateSchema);
+module.exports = mongoose.model('CaseDetails', caseDetailsSchema);

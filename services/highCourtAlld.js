@@ -1,5 +1,8 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const CaseDetails = require('../models/Casedetails');
+const { startWhatsapp } = require('./whatsappService');
+const { sendMessage } = require('./whatsappService');
 
 let lastJudgmentLink = ''; // Keep track of last seen order link
 
@@ -79,14 +82,55 @@ const getCaseDetailsByCino = async (cino) => {
 
     console.log('📄 Extracted Case Info:', result);
 
-    // Dummy storage logic
-    const previousDate = await getStoredNextDate(cino); // Replace with actual logic
-    if (nextHearingDate && nextHearingDate !== previousDate) {
-      console.log(`🆕 New hearing date: ${nextHearingDate}`);
-      await whatsappMessageNotification(result); // Replace with real function
-      await storeNextDate(cino, nextHearingDate); // Replace with real DB store
+    // Ensure WhatsApp is started (safe to call repeatedly)
+    try { await startWhatsapp(); } catch (_) {}
+
+    // Load previous snapshot
+    const existing = await CaseDetails.findOne({ cino });
+
+    const fieldsToCheck = ['status', 'stage', 'bench', 'nextHearingDate', 'petitioner', 'respondent'];
+    let changedFields = [];
+    let before = {};
+
+    if (existing) {
+      for (const field of fieldsToCheck) {
+        const prev = (existing[field] || '').trim();
+        const curr = (result[field] || '').trim();
+        if (prev !== curr) {
+          changedFields.push(field);
+          before[field] = prev;
+        }
+      }
     } else {
-      console.log('⏳ Hearing date unchanged.');
+      // First time tracking; treat all as changes
+      changedFields = fieldsToCheck.filter((f) => (result[f] || '').trim() !== '');
+    }
+
+    // Persist latest snapshot
+    if (existing) {
+      for (const field of fieldsToCheck) existing[field] = result[field] || '';
+      existing.lastSnapshot = result;
+      await existing.save();
+    } else {
+      await CaseDetails.create({
+        cino,
+        ...result,
+        lastSnapshot: result,
+      });
+    }
+
+    // Notify if anything changed
+    if (changedFields.length > 0) {
+      const message = formatChangeMessage(cino, changedFields, before, result);
+      const to = process.env.NOTIFY_TO || '918123573669@c.us';
+      try {
+        await sendMessage(to, message);
+        console.log(`📲 Notified ${to}`);
+      } catch (notifyErr) {
+        console.error('❌ Failed to send WhatsApp notification:', notifyErr.message);
+      }
+    } else {
+      console.log('⏳ No changes detected.');
     }
 
     return result;
@@ -128,7 +172,17 @@ const checkOrderSheets = async () => {
         console.log('🔔 New Order Link Found:', currentLink);
         lastJudgmentLink = currentLink;
 
-        // You can send notification or store it in DB here
+        // Notify about new order link
+        const to = process.env.NOTIFY_TO || '918123573669@c.us';
+        try {
+          await startWhatsapp();
+          await sendMessage(
+            to,
+            `Allahabad HC: New order/judgment detected\nLink: ${currentLink}`
+          );
+        } catch (e) {
+          console.error('❌ Failed to notify about new order link:', e.message);
+        }
       } else {
         console.log('✅ No new judgment yet...');
       }
@@ -141,16 +195,27 @@ const checkOrderSheets = async () => {
   }
 };
 
-// Dummy placeholders – replace these with real logic or DB functions
-const getStoredNextDate = async (cino) => {
-  return null; // simulate first-time
-};
-const storeNextDate = async (cino, date) => {
-  console.log(`📦 Stored new date (${date}) for CINO ${cino}`);
-};
-const whatsappMessageNotification = async (result) => {
-  console.log(`📲 Sending WhatsApp message for CINO ${result.cino}`);
-};
+function formatChangeMessage(cino, changedFields, before, after) {
+  const title = `Allahabad HC update for CINO ${cino}`;
+  const lines = changedFields.map((f) => {
+    const prev = (before[f] || '—').toString();
+    const curr = (after[f] || '—').toString();
+    return `${prettyLabel(f)}: ${prev} → ${curr}`;
+  });
+  return `${title}\n${lines.join('\n')}`;
+}
+
+function prettyLabel(field) {
+  switch (field) {
+    case 'nextHearingDate': return 'Next Hearing Date';
+    case 'status': return 'Status';
+    case 'stage': return 'Stage';
+    case 'bench': return 'Bench';
+    case 'petitioner': return 'Petitioner';
+    case 'respondent': return 'Respondent';
+    default: return field;
+  }
+}
 
 module.exports = {
   callHighCourt,

@@ -100,4 +100,9 @@ function getLastQrCode() {
     return lastQrCode;
 }
 
-module.exports = { startWhatsapp, getWhatsappClient, getLastQrCode };
+async function sendMessage(to, message) {
+    const client = await startWhatsapp();
+    return client.sendMessage(to, message);
+}
+
+module.exports = { startWhatsapp, getWhatsappClient, getLastQrCode, sendMessage };
