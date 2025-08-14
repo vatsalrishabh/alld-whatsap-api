@@ -1,7 +1,7 @@
 const express = require('express');
 const cron = require('node-cron');
 const connectDB = require('./config/db'); // Ensure this file exports a function to connect to MongoDB
-const { getCaseDetailsByCino, notifyStatusToRecipients, checkNextHearingDateAndNotify } = require('./services/highCourtAlld');
+const { getCaseDetailsByCino, notifyStatusToRecipients, checkNextHearingDateAndNotify, checkAllTrackedCasesAndNotifyFromDB } = require('./services/highCourtAlld');
 const { startWhatsapp } = require('./services/whatsappService');
 const { getLastQrCode } = require('./services/whatsappService');
 const QRCode = require('qrcode');
@@ -41,13 +41,23 @@ const NOTIFY_TO_LIST = process.env.NOTIFY_TO_LIST || '["8123573669","8423003490"
   }
 })();
 
-// Cron: check every 5 minutes for new hearing date and notify if changed
+// Cron: check every 5 minutes for new hearing date and notify if changed (env default)
 cron.schedule('*/5 * * * *', async () => {
   console.log('⏰ Running cron job every 5 minutes');
   try {
     await checkNextHearingDateAndNotify(CINO, NOTIFY_TO_LIST);
   } catch (err) {
     console.error('❌ Cron error:', err.message);
+  }
+});
+
+// Cron: every 5 minutes, iterate over all tracked user cases and notify their owners on ANY change
+cron.schedule('*/5 * * * *', async () => {
+  console.log('⏰ Running tracked UserCase change check');
+  try {
+    await checkAllTrackedCasesAndNotifyFromDB();
+  } catch (e) {
+    console.error('❌ Tracked UserCase cron error:', e.message);
   }
 });
 

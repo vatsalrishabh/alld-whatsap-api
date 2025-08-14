@@ -2,6 +2,8 @@ require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const path = require('path');
 const axios = require('axios');
+const UserCase = require('../models/UserCase');
+const { checkCaseChangesAndNotifyForCinoFromDB } = require('./highCourtAlld');
 
 let whatsappClient = null;
 let lastQrCode = null;
@@ -91,7 +93,38 @@ function startWhatsapp() {
             if (msg.fromMe) return;
 
             console.log(`📩 New message from ${msg.from}: ${msg.body}`);
-            const aiReply = await getAIResponse(msg.body);
+            // Command format: "<phone>,cino,<CINO>" sent from 8123573669 only
+            const body = (msg.body || '').trim();
+            const senderDigits = String(msg.from).replace(/\D/g, '').replace(/^91/, '').slice(0, 10);
+            const adminDigits = (process.env.ADMIN_NUMBER || '8123573669').replace(/\D/g, '');
+
+            const parts = body.split(/\s*,\s*/);
+            if (
+                senderDigits === adminDigits &&
+                parts.length === 3 &&
+                /^\d{10}$/.test(parts[0]) &&
+                /^cino$/i.test(parts[1]) &&
+                parts[2].length >= 6
+            ) {
+                const phoneNumber = parts[0];
+                const cino = parts[2].toUpperCase();
+                try {
+                    await UserCase.updateOne(
+                        { phoneNumber, cino },
+                        { $set: { phoneNumber, cino, active: true } },
+                        { upsert: true }
+                    );
+                    await msg.reply(`Saved mapping: ${phoneNumber} ↔ ${cino}`);
+                    // Trigger immediate check and notify if needed
+                    await checkCaseChangesAndNotifyForCinoFromDB(cino);
+                } catch (e) {
+                    console.error('Failed to save UserCase:', e.message);
+                    await msg.reply('Failed to save mapping.');
+                }
+                return;
+            }
+
+            const aiReply = await getAIResponse(body);
             await msg.reply(aiReply);
             console.log(`🤖 Replied: ${aiReply}`);
         });

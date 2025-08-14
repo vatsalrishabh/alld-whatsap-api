@@ -2,6 +2,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const CaseDetails = require('../models/Casedetails');
+const UserCase = require('../models/UserCase');
 const { startWhatsapp, sendMessage } = require('./whatsappService');
 
 let lastJudgmentLink = ''; // Keep track of last seen order link
@@ -218,6 +219,13 @@ async function sendToRecipients(recipients, message) {
   }
 }
 
+function numbersToJids(numbers) {
+  return numbers
+    .map((n) => String(n).replace(/\D/g, ''))
+    .filter(Boolean)
+    .map((digits) => (digits.includes('@') ? digits : `91${digits}@c.us`));
+}
+
 /** Formats a compact status message (handy for manual pings) */
 function formatStatusMessage(cino, info) {
   return [
@@ -342,6 +350,39 @@ async function checkCaseChangesAndNotify(cino, recipientsInput) {
   return { result, changedFields };
 }
 
+/**
+ * Notify for a CINO using recipients from UserCase collection
+ */
+async function checkCaseChangesAndNotifyForCinoFromDB(cino) {
+  const mappings = await UserCase.find({ cino, active: true }).lean();
+  if (!mappings.length) return null;
+  const recipients = numbersToJids(mappings.map((m) => m.phoneNumber));
+
+  const data = await getCaseDetailsByCino(cino);
+  if (!data) return null;
+  const { result, changedFields, before } = data;
+  if (changedFields.length > 0) {
+    const msg = formatChangeMessage(cino, changedFields, before, result);
+    await sendToRecipients(recipients, msg);
+  }
+  return { result, changedFields };
+}
+
+/**
+ * Iterate over all tracked CINOs in UserCase and notify on any changes
+ */
+async function checkAllTrackedCasesAndNotifyFromDB() {
+  const all = await UserCase.find({ active: true }).lean();
+  const byCino = [...new Set(all.map((x) => x.cino))];
+  for (const cino of byCino) {
+    try {
+      await checkCaseChangesAndNotifyForCinoFromDB(cino);
+    } catch (e) {
+      console.error('❌ Failed checking CINO', cino, e.message);
+    }
+  }
+}
+
 module.exports = {
   callHighCourt,
   getCaseDetailsByCino,
@@ -349,4 +390,6 @@ module.exports = {
   notifyStatusToRecipients,
   checkNextHearingDateAndNotify,
   checkCaseChangesAndNotify,
+  checkCaseChangesAndNotifyForCinoFromDB,
+  checkAllTrackedCasesAndNotifyFromDB,
 };
