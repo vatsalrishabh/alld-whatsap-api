@@ -3,6 +3,8 @@ const cron = require('node-cron');
 const connectDB = require('./config/db'); // Ensure this file exports a function to connect to MongoDB
 const { getCaseDetailsByCino, notifyStatusToRecipients, checkNextHearingDateAndNotify } = require('./services/highCourtAlld');
 const { startWhatsapp } = require('./services/whatsappService');
+const { getLastQrCode } = require('./services/whatsappService');
+const QRCode = require('qrcode');
 require('dotenv').config();
 
 const app = express();
@@ -50,9 +52,20 @@ cron.schedule('*/5 * * * *', async () => {
 });
 
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('✅ Server & MongoDB connected. Cron job set.');
+// Root route - show WhatsApp QR if available
+app.get('/', async (req, res) => {
+  try {
+    const qr = getLastQrCode();
+    if (qr) {
+      const dataUrl = await QRCode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.end(`<!doctype html><html><head><title>WhatsApp QR</title><meta name="viewport" content="width=device-width, initial-scale=1"/></head><body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#fff"><div style="text-align:center"><h2 style="margin:0 0 12px">Scan to login WhatsApp</h2><img alt="QR" src="${dataUrl}" style="background:#fff;padding:8px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.3)"/><div style="opacity:.8;margin-top:10px">Open WhatsApp → Linked devices → Scan QR</div></div></body></html>`);
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.end(`<!doctype html><html><head><title>WhatsApp Status</title><meta name="viewport" content="width=device-width, initial-scale=1"/></head><body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#fff"><div style="text-align:center"><h2 style="margin:0 0 12px">✅ WhatsApp is authenticated</h2><div style="opacity:.8">No QR to show. Client is ready.</div></div></body></html>`);
+  } catch (e) {
+    res.status(500).send(`Failed to render QR: ${e.message}`);
+  }
 });
 
 // Start the server
