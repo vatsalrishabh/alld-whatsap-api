@@ -1,42 +1,56 @@
 require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const path = require('path');
-
-// ✅ Import OpenAI SDK and pass our HF key manually
-const OpenAI = require('openai');
+const axios = require('axios');
 
 let whatsappClient = null;
 let lastQrCode = null;
 
 const HF_TOKEN = process.env.HF_TOKEN; // your Hugging Face token from .env
-const HF_MODEL = process.env.HF_MODEL || "mistralai/Mistral-7B-Instruct-v0.2:featherless-ai";
-
-// ✅ Tell OpenAI SDK to use HF instead of OPENAI_API_KEY
-const hfClient = new OpenAI({
-    baseURL: "https://router.huggingface.co/v1",
-    apiKey: HF_TOKEN // manually set so it won't look for OPENAI_API_KEY
-});
+const HF_MODEL = process.env.HF_MODEL || "mistralai/Mistral-7B-Instruct-v0.2";
+const HF_INFERENCE_BASE = process.env.HF_INFERENCE_BASE || "https://api-inference.huggingface.co/models";
 
 // AI function
 async function getAIResponse(userMessage) {
     try {
-        const completion = await hfClient.chat.completions.create({
-            model: HF_MODEL,
-            messages: [
-                {
-                    role: "system",
-                    content: "You are Vatsal Rishabh Pandey. Reply as if you are him. Keep it short, friendly, and natural."
-                },
-                {
-                    role: "user",
-                    content: userMessage
-                }
-            ]
-        });
+        if (!HF_TOKEN) {
+            console.error("AI error: Missing HF_TOKEN. Set it in your .env.");
+            return "AI is not configured yet. Please try again later.";
+        }
+        const systemInstruction = "You are Vatsal Rishabh Pandey. Reply as if you are him. Keep it short, friendly, and natural.";
+        const prompt = `${systemInstruction}\n\nUser: ${userMessage}\nAssistant:`;
 
-        return completion.choices[0]?.message?.content?.trim() || "Hmm, okay!";
+        const url = `${HF_INFERENCE_BASE}/${encodeURIComponent(HF_MODEL)}`;
+        const headers = {
+            Authorization: `Bearer ${HF_TOKEN}`,
+            'Content-Type': 'application/json'
+        };
+        const body = {
+            inputs: prompt,
+            parameters: {
+                max_new_tokens: 256,
+                temperature: 0.7,
+                return_full_text: false
+            }
+        };
+
+        const response = await axios.post(url, body, { headers, timeout: 60000 });
+        const data = response.data;
+
+        let text = '';
+        if (Array.isArray(data)) {
+            text = data[0]?.generated_text || data[0]?.text || '';
+        } else if (data && typeof data === 'object') {
+            text = data.generated_text || data.text || data?.choices?.[0]?.text || '';
+        }
+
+        text = (text || '').toString().trim();
+        if (!text) text = "Hmm, okay!";
+        return text;
     } catch (error) {
-        console.error("AI error:", error.message);
+        const status = error?.status || error?.response?.status;
+        const data = error?.response?.data || error?.error || error?.message;
+        console.error("AI error:", { status, data });
         return "Sorry, couldn't think of a reply!";
     }
 }

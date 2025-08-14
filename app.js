@@ -1,7 +1,7 @@
 const express = require('express');
 const cron = require('node-cron');
 const connectDB = require('./config/db'); // Ensure this file exports a function to connect to MongoDB
-const { getCaseDetailsByCino } = require('./services/highCourtAlld');
+const { getCaseDetailsByCino, notifyStatusToRecipients, checkNextHearingDateAndNotify } = require('./services/highCourtAlld');
 const { startWhatsapp } = require('./services/whatsappService');
 require('dotenv').config();
 
@@ -27,12 +27,25 @@ startWhatsapp().catch((e) => console.error('❌ WhatsApp init failed:', e.messag
 //   }
 // });
 
+const CINO = process.env.DEFAULT_CINO || '1419388';
+const NOTIFY_TO_LIST = process.env.NOTIFY_TO_LIST || '["8123573669","8423003490"]';
+
+// On boot: send current status to recipients
+(async () => {
+  try {
+    await notifyStatusToRecipients(CINO, NOTIFY_TO_LIST);
+  } catch (e) {
+    console.error('❌ Failed to send initial status:', e.message);
+  }
+})();
+
+// Cron: check every 5 minutes for new hearing date and notify if changed
 cron.schedule('*/5 * * * *', async () => {
   console.log('⏰ Running cron job every 5 minutes');
   try {
-    await getCaseDetailsByCino('1419388');
+    await checkNextHearingDateAndNotify(CINO, NOTIFY_TO_LIST);
   } catch (err) {
-    console.error('❌ Failed to fetch case details:', err.message);
+    console.error('❌ Cron error:', err.message);
   }
 });
 
