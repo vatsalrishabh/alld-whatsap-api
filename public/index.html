@@ -115,7 +115,7 @@
       }
 
       try {
-        const res = await fetch("/api/cases", {
+        const res = await fetch("/api/cases/addCase", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ caseNumbers, mobileNumber }),
