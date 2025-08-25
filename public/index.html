@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Track Cases</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #f7f9fc;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+      width: 400px;
+      max-width: 90%;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 6px;
+      color: #444;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 18px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    input:focus {
+      border-color: #4a90e2;
+      outline: none;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #4a90e2;
+      border: none;
+      color: white;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background: #357abd;
+    }
+
+    #msg {
+      text-align: center;
+      margin-top: 15px;
+      font-weight: bold;
+    }
+
+    .error {
+      color: red;
+    }
+
+    .success {
+      color: green;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Track Cases</h1>
+
+    <form id="multiCaseForm">
+      <label>Case Numbers (comma separated):</label>
+      <input type="text" id="caseNumbers" placeholder="1419388, 1234567, 9876543" required />
+
+      <label>Mobile Number (10-digit Indian):</label>
+      <input type="text" id="mobileNumber" placeholder="8123456789" required maxlength="10"/>
+
+      <button type="submit">Submit</button>
+    </form>
+
+    <div id="msg"></div>
+  </div>
+
+  <script>
+    document.getElementById("multiCaseForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const caseNumbers = document.getElementById("caseNumbers").value.split(",").map(v => v.trim());
+      const mobileNumber = document.getElementById("mobileNumber").value.trim();
+
+      // ✅ Validate Indian 10-digit mobile (starts with 6-9)
+      if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
+        document.getElementById("msg").innerHTML =
+          `<span class="error">❌ Please enter a valid 10-digit Indian mobile number.</span>`;
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/cases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseNumbers, mobileNumber }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          document.getElementById("msg").innerHTML = `<span class="success">✅ ${data.message}</span>`;
+        } else {
+          document.getElementById("msg").innerHTML = `<span class="error">❌ ${data.message}</span>`;
+        }
+      } catch (err) {
+        document.getElementById("msg").innerHTML = `<span class="error">❌ Error saving data!</span>`;
+      }
+    });
+  </script>
+</body>
+</html>
