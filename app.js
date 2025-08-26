@@ -1,72 +1,96 @@
-const express = require('express');
-const path = require('path');
-const cron = require('node-cron');
-const connectDB = require('./config/db');
-const {
-  getCaseDetailsByCino,
-  notifyStatusToRecipients,
-  checkNextHearingDateAndNotify,
-  checkAllTrackedCasesAndNotifyFromDB
-} = require('./services/highCourtAlld');
-const caseRoutes = require("./routes/addToDbRoutes"); // ✅ your routes
-const dcaseRoutes = require("./routes/addToDbRoutes")
-require('dotenv').config();
+require("dotenv").config();
+const axios = require("axios");
+const cheerio = require("cheerio");
+const cron = require("node-cron");
 
-const app = express();
+// Import WhatsApp sender (your own service)
+const { sendMessage } = require("./services/whatsappService");
 
-// ===== Middleware =====
-app.use(express.json());
+// 🗂️ Cache to avoid duplicate alerts
+const sentCache = {};
+// 🕒 Hearing cache to calculate duration
+const hearingCache = {};
 
-// ===== Connect to MongoDB =====
-connectDB();
+// Helper: get today's date (YYYY-MM-DD)
+function getToday() {
+  return new Date().toISOString().split("T")[0];
+}
 
-// ====== Serve static frontend files from public/ ======
-app.use(express.static(path.join(__dirname, 'public')));
-
-// ====== API Routes ======
-app.use("/api/cases", caseRoutes);
-app.use("/api/dcases", dcaseRoutes);
-
-// ====== Default Root Route ======
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ====== CRON JOBS ======
-const CINO = process.env.DEFAULT_CINO || '1419388';
-const NOTIFY_TO_LIST = process.env.NOTIFY_TO_LIST || '["8123573669","8423003490"]';
-
-// On boot: send current status to recipients
-(async () => {
+async function checkCourtView() {
   try {
-    await notifyStatusToRecipients(CINO, NOTIFY_TO_LIST);
-  } catch (e) {
-    console.error('❌ Failed to send initial status:', e.message);
-  }
-})();
+    console.log("🔍 Checking court view...");
 
-// Every 5 minutes check hearing date
-cron.schedule('*/5 * * * *', async () => {
-  console.log('⏰ Running cron job every 5 minutes');
-  try {
-    await checkNextHearingDateAndNotify(CINO, NOTIFY_TO_LIST);
+    const url = "https://courtview.allahabadhighcourt.in/courtview/CourtViewAllahabad.do";
+    const { data: html } = await axios.get(url, { timeout: 20000 });
+    const $ = cheerio.load(html);
+
+    $("table tr").each(async (i, row) => {
+      const tds = $(row).find("td");
+      if (tds.length < 5) return;
+
+      const courtNo = $(tds[0]).text().trim();
+      if (courtNo !== "43") return; // 🚨 Only Court No. 43
+
+      const serialNo = $(tds[1]).text().trim();
+      const listType = $(tds[2]).text().trim();
+      const progress = $(tds[3]).text().trim();
+      const caseDetailsText = $(tds[4]).text().replace(/\s+/g, " ").trim();
+      const importantInfo = $(tds[5]).text().trim();
+
+      const today = getToday();
+      const caseId = `${courtNo}-${serialNo}-${caseDetailsText.split(" ")[0]}`;
+      const cacheKey = `${caseId}-${today}-${progress}-${importantInfo}`;
+
+      // 🚫 Avoid duplicates
+      if (sentCache[cacheKey]) return;
+
+      // 🔎 Combine progress + info to detect hearing state
+      const statusText = `${progress} ${importantInfo}`.toLowerCase();
+
+      // 🕒 Track hearing duration
+      const hearingKey = `${caseId}-${today}`;
+      let durationText = "";
+      if (statusText.includes("heard")) {
+        if (!hearingCache[hearingKey]) {
+          hearingCache[hearingKey] = { startTime: Date.now(), lastStatus: statusText };
+        }
+      } else if (
+        hearingCache[hearingKey] &&
+        hearingCache[hearingKey].lastStatus.includes("heard")
+      ) {
+        const durationMs = Date.now() - hearingCache[hearingKey].startTime;
+        const mins = Math.floor(durationMs / 60000);
+        const secs = Math.floor((durationMs % 60000) / 1000);
+        durationText = `\n🕒 Heard for ${mins}m ${secs}s`;
+        delete hearingCache[hearingKey];
+      }
+
+      // 📨 Message structure
+      const message = 
+`📌 Court No: ${courtNo}
+#️⃣ Serial No: ${serialNo}
+📋 List: ${listType}
+➡️ Progress: ${progress || "N/A"}
+📑 Case Details: ${caseDetailsText}
+ℹ️ Info: ${importantInfo}${durationText}`;
+
+      try {
+        await sendMessage([918123573669, 916393657824], message);
+        console.log("📤 Alert sent for Court 43:", caseDetailsText);
+        sentCache[cacheKey] = true;
+      } catch (err) {
+        console.error("❌ Failed to send WhatsApp:", err.message);
+      }
+    });
+
+    console.log("✅ Check complete.");
   } catch (err) {
-    console.error('❌ Cron error:', err.message);
+    console.error("❌ Error in court view check:", err.message);
   }
-});
+}
 
-// Every 5 minutes check all tracked cases
-cron.schedule('*/5 * * * *', async () => {
-  console.log('⏰ Running tracked UserCase change check');
-  try {
-    await checkAllTrackedCasesAndNotifyFromDB();
-  } catch (e) {
-    console.error('❌ Tracked UserCase cron error:', e.message);
-  }
-});
+// Run immediately
+checkCourtView();
 
-// ====== START SERVER ======
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+// Schedule every 30 sec
+cron.schedule("*/30 * * * * *", checkCourtView);
